@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2017 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -41,16 +41,17 @@
 
 extern SDL_bool (*OS4_ResizeGlContext)(_THIS, SDL_Window * window);
 
-static void OS4_CloseWindow(_THIS, struct Window * window);
+static void OS4_CloseSystemWindow(_THIS, struct Window * window);
+static void OS4_CloseWindow(_THIS, SDL_Window * sdlwin);
 
 void
 OS4_GetWindowSize(_THIS, struct Window * window, int * width, int * height)
 {
     LONG ret = IIntuition->GetWindowAttrs(
-               window,
-               WA_InnerWidth, width,
-               WA_InnerHeight, height,
-               TAG_DONE);
+        window,
+        WA_InnerWidth, width,
+        WA_InnerHeight, height,
+        TAG_DONE);
 
     if (ret) {
         dprintf("GetWindowAttrs() returned %d\n", ret);
@@ -79,16 +80,24 @@ OS4_SetupWindowData(_THIS, SDL_Window * sdlwin, struct Window * syswin)
 {
     SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
 
-    SDL_WindowData *data = (SDL_WindowData *) SDL_calloc(1, sizeof(*data));
-    if (!data) {
-        return SDL_OutOfMemory();
+    SDL_WindowData *data;
+
+    if (sdlwin->driverdata) {
+        data = sdlwin->driverdata;
+        dprintf("Old window data %p exists\n", data);
+    } else {
+        data = (SDL_WindowData *) SDL_calloc(1, sizeof(*data));
+
+        if (!data) {
+            return SDL_OutOfMemory();
+        }
+
+        sdlwin->driverdata = data;
     }
 
     data->sdlwin = sdlwin;
     data->syswin = syswin;
     data->pointerGrabTicks = 0;
-
-    sdlwin->driverdata = data;
 
     if (data->syswin) {
         int width = 0;
@@ -103,10 +112,12 @@ OS4_SetupWindowData(_THIS, SDL_Window * sdlwin, struct Window * syswin)
     }
 
     // Pass SDL window as user data
-    data->appWin = IWorkbench->AddAppWindow(0, (ULONG)sdlwin, syswin, videodata->appMsgPort, TAG_DONE);
+    data->appWin = IWorkbench->AddAppWindow(0, (ULONG)sdlwin, syswin,
+        videodata->appMsgPort, TAG_DONE);
 
     if (!data->appWin) {
         dprintf("Couldn't create AppWindow\n");
+        // It's sad but don't fail because of this
     }
 
     return 0;
@@ -323,11 +334,8 @@ OS4_CreateWindow(_THIS, SDL_Window * window)
 
     if (OS4_SetupWindowData(_this, window, syswin) < 0) {
 
-        OS4_RemoveAppWindow(_this, window->driverdata);
-
-        if (syswin) {
-            OS4_CloseWindow(_this, syswin);
-        }
+        // There is no AppWindow in this scenario
+        OS4_CloseSystemWindow(_this, syswin);
 
         return SDL_SetError("Failed to setup window data");
     }
@@ -523,7 +531,7 @@ OS4_RaiseWindow(_THIS, SDL_Window * window)
 }
 
 static void
-OS4_CloseWindow(_THIS, struct Window * window)
+OS4_CloseSystemWindow(_THIS, struct Window * window)
 {
     if (window) {
         dprintf("Closing window '%s' (address %p)\n", window->Title, window);
@@ -533,7 +541,24 @@ OS4_CloseWindow(_THIS, struct Window * window)
         IIntuition->CloseWindow(window);
 
         OS4_CloseScreen(_this, screen);
+    } else {
+        dprintf("NULL pointer\n");
+    }
+}
 
+static void
+OS4_CloseWindow(_THIS, SDL_Window * sdlwin)
+{
+    SDL_WindowData *data = sdlwin->driverdata;
+
+    if (data) {
+        OS4_RemoveAppWindow(_this, data);
+
+        if (data->syswin) {
+            OS4_CloseSystemWindow(_this, data->syswin);
+
+            data->syswin = NULL;
+        }
     } else {
         dprintf("NULL pointer\n");
     }
@@ -570,14 +595,12 @@ OS4_SetWindowFullscreen(_THIS, SDL_Window * window, SDL_VideoDisplay * display, 
                 }
             }
 
-            OS4_RemoveAppWindow(_this, data);
-
             if (data->syswin) {
                 dprintf("Reopening window '%s' (%p) due to mode change\n",
                     window->title, data->syswin);
 
                 OS4_GetWindowSize(_this, data->syswin, &oldWidth, &oldHeight);
-                OS4_CloseWindow(_this, data->syswin);
+                OS4_CloseWindow(_this, window);
 
             } else {
                 dprintf("System window doesn't exist yet, let's open it\n");
@@ -665,8 +688,6 @@ OS4_DestroyWindow(_THIS, SDL_Window * window)
 
     if (data) {
 
-        OS4_RemoveAppWindow(_this, data);
-
         if (data->syswin) {
 
             if (!(window->flags & SDL_WINDOW_FOREIGN)) {
@@ -675,8 +696,7 @@ OS4_DestroyWindow(_THIS, SDL_Window * window)
                     OS4_DestroyShape(_this, window);
                 }
 
-                OS4_CloseWindow(_this, data->syswin);
-                data->syswin = NULL;
+                OS4_CloseWindow(_this, window);
             } else {
                 dprintf("Ignored for native window\n");
             }
@@ -760,6 +780,69 @@ OS4_GetWindowBordersSize(_THIS, SDL_Window * window, int * top, int * left, int 
     }
 
     return 0;
+}
+
+void
+OS4_MaximizeWindow(_THIS, SDL_Window * window)
+{
+    dprintf("implement me\n");
+}
+
+/* Iconify window */
+void
+OS4_MinimizeWindow(_THIS, SDL_Window * window)
+{
+    dprintf("implement me\n");
+}
+
+void
+OS4_RestoreWindow(_THIS, SDL_Window * window)
+{
+    dprintf("implement me\n");
+}
+
+void
+OS4_IconifyWindows(_THIS)
+{
+    SDL_Window *sdlwin;
+    dprintf("Here\n");
+
+    for (sdlwin = _this->windows; sdlwin; sdlwin = sdlwin->next) {
+
+        SDL_WindowData *data = sdlwin->driverdata;
+
+        if (!OS4_IsFullscreen(sdlwin) && data->syswin) {
+            OS4_CloseWindow(_this, sdlwin);
+        }
+    }
+
+    // TODO: should we send some event to user?
+    OS4_UnlockPubScreen(_this);
+}
+
+void
+OS4_UniconifyWindows(_THIS)
+{
+    dprintf("Here\n");
+
+    if (OS4_LockPubScreen(_this)) {
+
+        SDL_Window *sdlwin;
+
+        for (sdlwin = _this->windows; sdlwin; sdlwin = sdlwin->next) {
+
+            SDL_WindowData *data = sdlwin->driverdata;
+
+            if (!OS4_IsFullscreen(sdlwin) && !data->syswin) {
+                OS4_CreateWindow(_this, sdlwin);
+            }
+
+            // TODO: should we send some event to user?
+        }
+
+    } else {
+        dprintf("Failed to lock pub screen\n");
+    }
 }
 
 #endif /* SDL_VIDEO_DRIVER_AMIGAOS4 */

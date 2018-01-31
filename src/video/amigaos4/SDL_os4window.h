@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2017 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -60,10 +60,10 @@ extern void OS4_SetWindowSize(_THIS, SDL_Window * window);
 extern void OS4_ShowWindow(_THIS, SDL_Window * window);
 extern void OS4_HideWindow(_THIS, SDL_Window * window);
 extern void OS4_RaiseWindow(_THIS, SDL_Window * window);
-//extern void OS4_MaximizeWindow(_THIS, SDL_Window * window);
-//extern void OS4_MinimizeWindow(_THIS, SDL_Window * window);
-//extern void OS4_RestoreWindow(_THIS, SDL_Window * window);
-//extern void OS4_SetWindowBordered(_THIS, SDL_Window * window, SDL_bool bordered);
+extern void OS4_MaximizeWindow(_THIS, SDL_Window * window);
+extern void OS4_MinimizeWindow(_THIS, SDL_Window * window);
+extern void OS4_RestoreWindow(_THIS, SDL_Window * window);
+extern void OS4_SetWindowBordered(_THIS, SDL_Window * window, SDL_bool bordered);
 extern void OS4_SetWindowFullscreen(_THIS, SDL_Window * window, SDL_VideoDisplay * display, SDL_bool fullscreen);
 //extern int OS4_SetWindowGammaRamp(_THIS, SDL_Window * window, const Uint16 * ramp);
 //extern int OS4_GetWindowGammaRamp(_THIS, SDL_Window * window, Uint16 * ramp);
@@ -80,6 +80,9 @@ extern int OS4_SetWindowHitTest(SDL_Window * window, SDL_bool enabled);
 
 extern int OS4_SetWindowOpacity(_THIS, SDL_Window * window, float opacity);
 extern int OS4_GetWindowBordersSize(_THIS, SDL_Window * window, int * top, int * left, int * bottom, int * right);
+
+extern void OS4_IconifyWindows(_THIS);
+extern void OS4_UniconifyWindows(_THIS);
 
 #endif /* _SDL_os4window_h */
 

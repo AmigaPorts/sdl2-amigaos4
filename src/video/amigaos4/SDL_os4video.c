@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2017 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -132,6 +132,121 @@ OS4_CloseLibraries(_THIS)
     OS4_CloseLibrary(&GfxBase);
 }
 
+static void
+OS4_HandleScreenNotify(_THIS, ULONG cl)
+{
+    switch (cl) {
+        case SNOTIFY_BEFORE_CLOSEWB:
+            dprintf("Before close WB\n");
+            OS4_IconifyWindows(_this);
+            break;
+
+        case SNOTIFY_AFTER_OPENWB:
+            dprintf("After open WB\n");
+            OS4_UniconifyWindows(_this);
+            break;
+
+        default:
+            dprintf("Unknown screen notify message %d\n", cl);
+            break;
+    }
+}
+
+static int
+OS4_NotifyTask(uint32_t param)
+{
+    _THIS = (SDL_VideoDevice *)param;
+    SDL_VideoData *data = (SDL_VideoData *)_this->driverdata;
+
+    if ((data->screenNotifySignal = IExec->AllocSignal(-1)) == -1) {
+        dprintf("Failed to allocate screen notify signal\n");
+        goto done;
+    }
+
+    if (!(data->screenNotifyPort = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
+        dprintf("Failed to create screen notify msg port\n");
+        goto done;
+    }
+
+    if (!(data->screenNotifyRequest = IIntuition->StartScreenNotifyTags(
+        //SNA_PubName, "Workbench",
+        SNA_MsgPort, data->screenNotifyPort,
+        SNA_Notify, SNOTIFY_BEFORE_CLOSEWB | SNOTIFY_AFTER_OPENWB /*| SNOTIFY_WAIT_REPLY*/,
+        SNA_Priority, 0,
+        TAG_DONE))) {
+
+        dprintf("Failed to start screen notify\n");
+        goto done;
+    }
+
+    dprintf("Signalling main task\n");
+    IExec->Signal(data->mainTask, 1L << data->mainSignal);
+
+    while (data->running) {
+        ULONG notifySignal = 1L << data->screenNotifyPort->mp_SigBit;
+        ULONG stopSignal = 1L << data->screenNotifySignal;
+
+        ULONG sigs = IExec->Wait(notifySignal | stopSignal);
+
+        if (sigs & notifySignal) {
+           struct ScreenNotifyMessage *msg;
+
+            while ((msg = (struct ScreenNotifyMessage *)IExec->GetMsg(data->screenNotifyPort))) {
+                ULONG cl = msg->snm_Class;
+                IExec->ReplyMsg((struct Message *) msg);
+
+                dprintf("Received screen notify msg %d\n", cl);
+
+                OS4_HandleScreenNotify(_this, cl);
+            }
+        }
+
+        if (sigs & stopSignal) {
+            dprintf("Received stop signal\n");
+            break;
+        }
+    }
+
+    dprintf("SN task Ending\n");
+
+done:
+
+    if (data->screenNotifyRequest) {
+        dprintf("End screen notify\n");
+        if (!IIntuition->EndScreenNotify(data->screenNotifyRequest)) {
+            dprintf("...failed\n");
+        }
+
+        data->screenNotifyRequest = NULL;
+    }
+
+    if (data->screenNotifyPort) {
+
+        struct Message *msg;
+
+        while ((msg = IExec->GetMsg(data->screenNotifyPort))) {
+            IExec->ReplyMsg((struct Message *) msg);
+        }
+
+        IExec->FreeSysObject(ASOT_PORT, data->screenNotifyPort);
+        data->screenNotifyPort = NULL;
+    }
+
+    if (data->screenNotifySignal != -1) {
+        dprintf("Signalling main\n");
+
+        IExec->Signal(data->mainTask, 1L << data->mainSignal);
+
+        IExec->FreeSignal(data->screenNotifySignal);
+        data->screenNotifySignal = -1;
+    }
+
+    dprintf("Waiting for removal\n");
+
+    IExec->Wait(0L);
+    return 0;
+}
+
 static SDL_bool
 OS4_AllocSystemResources(_THIS)
 {
@@ -143,6 +258,9 @@ OS4_AllocSystemResources(_THIS)
         return SDL_FALSE;
     }
 
+    data->running = TRUE;
+    data->mainTask = IExec->FindTask(NULL);
+
     if (!(data->userport = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
         SDL_SetError("Couldn't allocate message port");
         return SDL_FALSE;
@@ -152,6 +270,22 @@ OS4_AllocSystemResources(_THIS)
         SDL_SetError("Couldn't allocate AppMsg port");
         return SDL_FALSE;
     }
+
+    if ((data->mainSignal = IExec->AllocSignal(-1)) == -1) {
+        SDL_SetError("Couldn't allocate main signal");
+        return SDL_FALSE;
+    }
+
+    if (!(data->screenNotifyTask = IExec->CreateTaskTags("SDL2 Screen Notification",
+        0, OS4_NotifyTask, 16384, AT_Param1, (uint32)_this, TAG_DONE))) {
+
+        SDL_SetError("Couldn't create Screen Notification task");
+        return SDL_FALSE;
+    }
+
+    dprintf("Waiting for sn task\n");
+    IExec->Wait(1L << data->mainSignal);
+    dprintf("sn reported\n");
 
     /* Create the pool we'll be using (Shared, might be used from threads) */
     if (!(data->pool = IExec->AllocSysObjectTags(ASOT_MEMPOOL,
@@ -204,6 +338,25 @@ OS4_FreeSystemResources(_THIS)
 
     dprintf("Called\n");
 
+    data->running = FALSE;
+
+    if (data->screenNotifyTask && data->screenNotifySignal) {
+        dprintf("Signalling screen notify task\n");
+
+        IExec->Signal(data->screenNotifyTask, 1L << data->screenNotifySignal);
+
+        if (data->mainSignal != -1) {
+            dprintf("Waiting for screen notify task\n");
+            IExec->Wait(1L << data->mainSignal);
+        }
+
+        IExec->RemTask(data->screenNotifyTask);
+    }
+
+    if (data->mainSignal != -1) {
+        IExec->FreeSignal(data->mainSignal);
+    }
+
     OS4_DropInterface((void *)&IInput);
 
     if (data->inputReq) {
@@ -226,10 +379,10 @@ OS4_FreeSystemResources(_THIS)
     }
 
     if (data->appMsgPort) {
-        struct AppMessage *amsg;
+        struct Message *msg;
 
-        while ((amsg = (struct AppMessage *)IExec->GetMsg(data->appMsgPort))) {
-            IExec->ReplyMsg((struct Message *) amsg);
+        while ((msg = IExec->GetMsg(data->appMsgPort))) {
+            IExec->ReplyMsg((struct Message *) msg);
         }
 
         IExec->FreeSysObject(ASOT_PORT, data->appMsgPort);
@@ -323,48 +476,9 @@ OS4_LoadGlLibrary(_THIS, const char * path)
     return OS4_GL_LoadLibrary(_this, path);
 }
 
-static SDL_VideoDevice *
-OS4_CreateDevice(int devindex)
+static void
+OS4_SetFunctionPointers(SDL_VideoDevice * device)
 {
-    SDL_VideoDevice *device;
-    SDL_VideoData *data;
-    SDL_version version;
-
-    SDL_GetVersion(&version);
-
-    dprintf("*** SDL %d.%d.%d video initialization starts ***\n",
-        version.major, version.minor, version.patch);
-
-    /* Initialize all variables that we clean on shutdown */
-    device = (SDL_VideoDevice *) SDL_calloc(1, sizeof(SDL_VideoDevice));
-
-    if (device) {
-        data = (SDL_VideoData *) SDL_calloc(1, sizeof(SDL_VideoData));
-    } else {
-        data = NULL;
-    }
-
-    if (!data) {
-        SDL_free(device);
-        SDL_OutOfMemory();
-        return NULL;
-    }
-
-    device->driverdata = data;
-
-    if (!OS4_AllocSystemResources(device)) {
-        SDL_free(device);
-        SDL_free(data);
-
-        /* If we return with NULL, SDL_VideoQuit() can't clean up OS4 stuff. So let's do it now. */
-        OS4_FreeSystemResources(device);
-
-        SDL_Unsupported();
-
-        return NULL;
-    }
-
-    /* Set the function pointers */
     device->VideoInit = OS4_VideoInit;
     device->VideoQuit = OS4_VideoQuit;
 
@@ -381,9 +495,9 @@ OS4_CreateDevice(int devindex)
     device->ShowWindow = OS4_ShowWindow;
     device->HideWindow = OS4_HideWindow;
     device->RaiseWindow = OS4_RaiseWindow;
-    //device->MaximizeWindow = OS4_MaximizeWindow;
-    //device->MinimizeWindow = OS4_MinimizeWindow;
-    //device->RestoreWindow = OS4_RestoreWindow;
+    device->MaximizeWindow = OS4_MaximizeWindow;
+    device->MinimizeWindow = OS4_MinimizeWindow;
+    device->RestoreWindow = OS4_RestoreWindow;
     //device->SetWindowBordered = OS4_SetWindowBordered; // Not supported by SetWindowAttrs()?
     device->SetWindowFullscreen = OS4_SetWindowFullscreen;
     //device->SetWindowGammaRamp = OS4_SetWindowGammaRamp;
@@ -418,6 +532,50 @@ OS4_CreateDevice(int devindex)
     //device->ShowMessageBox = OS4_ShowMessageBox; Can be called without video initialization
 
     device->free = OS4_DeleteDevice;
+}
+
+static SDL_VideoDevice *
+OS4_CreateDevice(int devindex)
+{
+    SDL_VideoDevice *device;
+    SDL_VideoData *data;
+    SDL_version version;
+
+    SDL_GetVersion(&version);
+
+    dprintf("*** SDL %d.%d.%d video initialization starts ***\n",
+        version.major, version.minor, version.patch);
+
+    /* Initialize all variables that we clean on shutdown */
+    device = (SDL_VideoDevice *) SDL_calloc(1, sizeof(SDL_VideoDevice));
+
+    if (device) {
+        data = (SDL_VideoData *) SDL_calloc(1, sizeof(SDL_VideoData));
+    } else {
+        data = NULL;
+    }
+
+    if (!data) {
+        SDL_free(device);
+        SDL_OutOfMemory();
+        return NULL;
+    }
+
+    device->driverdata = data;
+
+    if (!OS4_AllocSystemResources(device)) {
+        /* If we return with NULL, SDL_VideoQuit() can't clean up OS4 stuff. So let's do it now. */
+        OS4_FreeSystemResources(device);
+
+        SDL_free(device);
+        SDL_free(data);
+
+        SDL_Unsupported();
+
+        return NULL;
+    }
+
+    OS4_SetFunctionPointers(device);
 
     return device;
 }
