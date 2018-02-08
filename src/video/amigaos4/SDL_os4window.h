@@ -27,6 +27,8 @@
 
 #define POINTER_GRAB_TIMEOUT        20  /* Number of ticks before pointer grab needs to be reactivated */
 
+#define GID_ICONIFY 123
+
 typedef struct HitTestInfo
 {
     SDL_HitTestResult htr;
@@ -46,6 +48,11 @@ typedef struct
     struct BitMap   * glBackBuffer;
 
     HitTestInfo hti;
+
+    BOOL iconified;
+    struct Gadget   * gadget;
+    struct Image    * image;
+
 } SDL_WindowData;
 
 extern void OS4_GetWindowSize(_THIS, struct Window * window, int * width, int * height);

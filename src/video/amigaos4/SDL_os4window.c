@@ -23,6 +23,8 @@
 #if SDL_VIDEO_DRIVER_AMIGAOS4
 
 #include <proto/wb.h>
+#include <intuition/imageclass.h>
+#include <intuition/gadgetclass.h>
 
 #include "SDL_os4video.h"
 #include "SDL_os4shape.h"
@@ -135,7 +137,7 @@ OS4_GetIDCMPFlags(SDL_Window * window, SDL_bool fullscreen)
 
     if (!fullscreen) {
         if (!(window->flags & SDL_WINDOW_BORDERLESS)) {
-            IDCMPFlags  |= IDCMP_CLOSEWINDOW;
+            IDCMPFlags  |= IDCMP_CLOSEWINDOW | IDCMP_GADGETUP;
         }
 
         if (window->flags & SDL_WINDOW_RESIZABLE) {
@@ -248,6 +250,50 @@ OS4_DefineWindowBox(SDL_Window * window, struct Screen * screen, SDL_bool fullsc
     }
 }
 
+static void
+OS4_CreateIconifyGadget(_THIS, SDL_Window * window)
+{
+    SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
+    SDL_WindowData *data = window->driverdata;
+
+    dprintf("Here\n");
+
+    struct DrawInfo *di = IIntuition->GetScreenDrawInfo(videodata->publicScreen);
+
+    if (di) {
+        data->image = (struct Image *)IIntuition->NewObject(NULL, SYSICLASS,
+            SYSIA_Which, ICONIFYIMAGE,
+            SYSIA_DrawInfo, di,
+            TAG_DONE);
+
+        if (data->image) {
+            data->gadget = (struct Gadget *)IIntuition->NewObject(NULL, BUTTONGCLASS,
+                GA_Image, data->image,
+                GA_ID, GID_ICONIFY,
+                GA_TopBorder, TRUE,
+                GA_RelRight, TRUE,
+                GA_Titlebar, TRUE,
+                GA_RelVerify, TRUE,
+                TAG_DONE);
+
+            if (data->gadget) {
+                struct Window *syswin = data->syswin;
+
+                IIntuition->AddGadget(syswin, data->gadget, -1);
+            } else {
+                dprintf("Failed to create button class\n");
+            }
+        } else {
+           dprintf("Failed to create image class\n");
+        }
+
+        IIntuition->FreeScreenDrawInfo(videodata->publicScreen, di);
+
+    } else {
+        dprintf("Failed to get screen draw info\n");
+    }
+}
+
 static struct Window *
 OS4_CreateSystemWindow(_THIS, SDL_Window * window, SDL_VideoDisplay * display)
 {
@@ -338,6 +384,10 @@ OS4_CreateWindow(_THIS, SDL_Window * window)
         OS4_CloseSystemWindow(_this, syswin);
 
         return SDL_SetError("Failed to setup window data");
+    }
+
+    if (!OS4_IsFullscreen(window) && !(window->flags & SDL_WINDOW_BORDERLESS)) {
+        OS4_CreateIconifyGadget(_this, window);
     }
 
     return 0;
@@ -555,6 +605,18 @@ OS4_CloseWindow(_THIS, SDL_Window * sdlwin)
         OS4_RemoveAppWindow(_this, data);
 
         if (data->syswin) {
+
+            if (data->gadget) {
+                IIntuition->RemoveGadget(data->syswin, data->gadget);
+                IIntuition->DisposeObject((Object *)data->gadget);
+                data->gadget = NULL;
+            }
+
+            if (data->image) {
+                IIntuition->DisposeObject((Object *)data->image);
+                data->image = NULL;
+            }
+
             OS4_CloseSystemWindow(_this, data->syswin);
 
             data->syswin = NULL;
@@ -805,14 +867,24 @@ void
 OS4_IconifyWindows(_THIS)
 {
     SDL_Window *sdlwin;
-    dprintf("Here\n");
 
     for (sdlwin = _this->windows; sdlwin; sdlwin = sdlwin->next) {
 
         SDL_WindowData *data = sdlwin->driverdata;
 
         if (!OS4_IsFullscreen(sdlwin) && data->syswin) {
-            OS4_CloseWindow(_this, sdlwin);
+
+            if (!data->iconified) {
+                dprintf("Iconifying window\n");
+
+                OS4_CloseWindow(_this, sdlwin);
+
+                SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_MINIMIZED, 0, 0);
+
+                data->iconified = TRUE;
+            } else {
+                dprintf("Window already iconified\n");
+            }
         }
     }
 
@@ -823,8 +895,6 @@ OS4_IconifyWindows(_THIS)
 void
 OS4_UniconifyWindows(_THIS)
 {
-    dprintf("Here\n");
-
     if (OS4_LockPubScreen(_this)) {
 
         SDL_Window *sdlwin;
@@ -834,7 +904,17 @@ OS4_UniconifyWindows(_THIS)
             SDL_WindowData *data = sdlwin->driverdata;
 
             if (!OS4_IsFullscreen(sdlwin) && !data->syswin) {
-                OS4_CreateWindow(_this, sdlwin);
+
+                if (data->iconified) {
+                    dprintf("Uniconifying window\n");
+
+                    OS4_CreateWindow(_this, sdlwin);
+
+                    SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_SHOWN, 0, 0);
+                    data->iconified = FALSE;
+                } else {
+                    dprintf("Window not iconified\n");
+                }
             }
 
             // TODO: should we send some event to user?

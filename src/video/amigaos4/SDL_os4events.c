@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2017 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -521,6 +521,16 @@ OS4_HandleTicks(_THIS, struct MyIntuiMessage * imsg)
 }
 
 static void
+OS4_HandleGadget(_THIS, struct MyIntuiMessage * msg)
+{
+    printf("Gadget event %p\n", msg->Gadget);
+
+    if (msg->Gadget->GadgetID == GID_ICONIFY) {
+        printf("Iconify button pressed\n");
+    }
+}
+
+static void
 OS4_HandleAppWindow(_THIS, struct AppMessage * amsg)
 {
     SDL_Window *window = (SDL_Window *)amsg->am_UserData;
@@ -616,6 +626,10 @@ OS4_EventHandler(_THIS)
 
             case IDCMP_INTUITICKS:
                 OS4_HandleTicks(_this, &msg);
+                break;
+
+            case IDCMP_GADGETUP:
+                OS4_HandleGadget(_this, &msg);
                 break;
 
             default:
