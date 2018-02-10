@@ -77,6 +77,17 @@ OS4_RemoveAppWindow(_THIS, SDL_WindowData *data)
     }
 }
 
+static void
+OS4_RemoveAppIcon(_THIS, SDL_WindowData *data)
+{
+    if (data->appIcon) {
+        if (IWorkbench->RemoveAppIcon(data->appIcon) == FALSE) {
+            dprintf("Failed to remove AppIcon\n");
+        }
+        data->appIcon = NULL;
+    }
+}
+
 static int
 OS4_SetupWindowData(_THIS, SDL_Window * sdlwin, struct Window * syswin)
 {
@@ -330,7 +341,7 @@ OS4_CreateSystemWindow(_THIS, SDL_Window * window, SDL_VideoDisplay * display)
         WA_IDCMP, IDCMPFlags,
         WA_Hidden, (window->flags & SDL_WINDOW_HIDDEN) ? TRUE : FALSE,
         WA_GrabFocus, (window->flags & SDL_WINDOW_INPUT_GRABBED) ? POINTER_GRAB_TIMEOUT : 0,
-        WA_UserPort, videodata->userport,
+        WA_UserPort, videodata->userPort,
         WA_BackFill, &OS4_BackFillHook,
         TAG_DONE);
 
@@ -603,6 +614,7 @@ OS4_CloseWindow(_THIS, SDL_Window * sdlwin)
 
     if (data) {
         OS4_RemoveAppWindow(_this, data);
+        OS4_RemoveAppIcon(_this, data);
 
         if (data->syswin) {
 
@@ -861,6 +873,50 @@ void
 OS4_RestoreWindow(_THIS, SDL_Window * window)
 {
     dprintf("implement me\n");
+}
+
+void
+OS4_IconifyWindow(_THIS, SDL_Window * window)
+{
+    if (window && window->driverdata) {
+        SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
+
+        SDL_WindowData *data = window->driverdata;
+
+        struct DiskObject *diskObject = IIcon->GetDiskObjectNew("ENVARC:Sys/def_window");
+
+        if (diskObject) {
+            data->appIcon = IWorkbench->AddAppIcon(
+                0,
+                (ULONG)window,
+                window->title,
+                videodata->appMsgPort,
+                0,
+                diskObject,
+                TAG_DONE);
+
+            if (!data->appIcon) {
+                dprintf("Failed to add AppIcon\n");
+            } else {
+                OS4_HideWindow(_this, window);
+            }
+
+            IIcon->FreeDiskObject(diskObject);
+        } else {
+            dprintf("Failed to get disk object\n");
+        }
+    }
+}
+
+void
+OS4_UniconifyWindow(_THIS, SDL_Window * window)
+{
+    if (window && window->driverdata) {
+        dprintf("here\n");
+
+        OS4_RemoveAppIcon(_this, window->driverdata);
+        OS4_ShowWindow(_this, window);
+    }
 }
 
 void

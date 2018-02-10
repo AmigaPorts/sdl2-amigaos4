@@ -41,15 +41,17 @@ typedef struct
     struct Window   * syswin;
     struct BitMap   * bitmap;
     struct AppWindow * appWin;
+    struct AppIcon  * appIcon;
+
     Uint32            pointerGrabTicks;
 
     void*           * glContext;
     struct BitMap   * glFrontBuffer;
     struct BitMap   * glBackBuffer;
 
-    HitTestInfo hti;
+    HitTestInfo       hti;
 
-    BOOL iconified;
+    BOOL              iconified;
     struct Gadget   * gadget;
     struct Image    * image;
 
@@ -87,6 +89,9 @@ extern int OS4_SetWindowHitTest(SDL_Window * window, SDL_bool enabled);
 
 extern int OS4_SetWindowOpacity(_THIS, SDL_Window * window, float opacity);
 extern int OS4_GetWindowBordersSize(_THIS, SDL_Window * window, int * top, int * left, int * bottom, int * right);
+
+extern void OS4_IconifyWindow(_THIS, SDL_Window * window);
+extern void OS4_UniconifyWindow(_THIS, SDL_Window * window);
 
 extern void OS4_IconifyWindows(_THIS);
 extern void OS4_UniconifyWindows(_THIS);

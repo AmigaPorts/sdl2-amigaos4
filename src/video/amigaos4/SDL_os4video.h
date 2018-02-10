@@ -44,7 +44,7 @@ typedef struct
     struct Screen          *publicScreen;
 
     struct Task            *mainTask;
-    struct MsgPort         *userport;
+    struct MsgPort         *userPort;
     struct MsgPort         *appMsgPort;
     BYTE                    mainSignal;
 

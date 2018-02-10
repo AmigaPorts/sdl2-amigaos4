@@ -261,7 +261,7 @@ OS4_AllocSystemResources(_THIS)
     data->running = TRUE;
     data->mainTask = IExec->FindTask(NULL);
 
-    if (!(data->userport = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
+    if (!(data->userPort = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
         SDL_SetError("Couldn't allocate message port");
         return SDL_FALSE;
     }
@@ -388,8 +388,8 @@ OS4_FreeSystemResources(_THIS)
         IExec->FreeSysObject(ASOT_PORT, data->appMsgPort);
     }
 
-    if (data->userport) {
-        IExec->FreeSysObject(ASOT_PORT, data->userport);
+    if (data->userPort) {
+        IExec->FreeSysObject(ASOT_PORT, data->userPort);
     }
 
     OS4_CloseLibraries(_this);
@@ -654,7 +654,7 @@ OS4_GetSharedMessagePort()
     if (vd) {
         SDL_VideoData *data = (SDL_VideoData *) vd->driverdata;
         if (data) {
-            return data->userport;
+            return data->userPort;
         }
     }
 
