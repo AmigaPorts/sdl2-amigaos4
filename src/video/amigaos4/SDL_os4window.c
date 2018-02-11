@@ -60,6 +60,18 @@ OS4_GetWindowSize(_THIS, struct Window * window, int * width, int * height)
     }
 }
 
+void
+OS4_GetWindowActiveSize(SDL_Window * window, int * width, int * height)
+{
+    if (window->flags & SDL_WINDOW_MAXIMIZED) {
+        *width = window->max_w;
+        *height = window->max_h;
+    } else {
+        *width = window->w;
+        *height = window->h;
+    }
+}
+
 static SDL_bool
 OS4_IsFullscreen(SDL_Window * window)
 {
@@ -267,7 +279,7 @@ OS4_CreateIconifyGadget(_THIS, SDL_Window * window)
     SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
     SDL_WindowData *data = window->driverdata;
 
-    dprintf("Here\n");
+    dprintf("Called\n");
 
     struct DrawInfo *di = IIntuition->GetScreenDrawInfo(videodata->publicScreen);
 
@@ -398,7 +410,12 @@ OS4_CreateWindow(_THIS, SDL_Window * window)
     }
 
     if (!OS4_IsFullscreen(window) && !(window->flags & SDL_WINDOW_BORDERLESS)) {
-        OS4_CreateIconifyGadget(_this, window);
+        if (window->w > 99 && window->h > 99) {
+            OS4_CreateIconifyGadget(_this, window);
+        } else {
+            dprintf("Don't add gadget for too small window %d*%d (OS4 bug)\n",
+                window->w, window->h);
+        }
     }
 
     return 0;
@@ -444,21 +461,24 @@ OS4_SetWindowBox(_THIS, SDL_Window * window)
     SDL_WindowData *data = window->driverdata;
 
     if (data && data->syswin) {
+        int width, height;
         LONG ret;
 
-        if (SDL_IsShapedWindow(window)) {
-            OS4_ResizeWindowShape(window);
-        }
+        OS4_GetWindowActiveSize(window, &width, &height);
 
         ret = IIntuition->SetWindowAttrs(data->syswin,
             WA_Left, window->x,
             WA_Top, window->y,
-            WA_InnerWidth, window->w,
-            WA_InnerHeight, window->h,
+            WA_InnerWidth, width,
+            WA_InnerHeight, height,
             TAG_DONE);
 
         if (ret) {
             dprintf("SetWindowAttrs() returned %d\n", ret);
+        }
+
+        if (SDL_IsShapedWindow(window)) {
+            OS4_ResizeWindowShape(window);
         }
 
         if (data->glContext) {
@@ -487,6 +507,35 @@ OS4_SetWindowPosition(_THIS, SDL_Window * window)
     }
 }
 
+static void
+OS4_ResizeWindow(_THIS, SDL_Window * window, int width, int height)
+{
+    if (width > 0 && height > 0) {
+        SDL_WindowData *data = window->driverdata;
+
+        if (data) {
+            LONG ret = IIntuition->SetWindowAttrs(data->syswin,
+                WA_InnerWidth, width,
+                WA_InnerHeight, height,
+                TAG_DONE);
+
+            if (ret) {
+                dprintf("SetWindowAttrs() returned %d\n", ret);
+            }
+
+            if (SDL_IsShapedWindow(window)) {
+                OS4_ResizeWindowShape(window);
+            }
+
+            if (data->glContext) {
+                OS4_ResizeGlContext(_this, window);
+            }
+        }
+    } else {
+        dprintf("Invalid width %d or height %d\n", width, height);
+    }
+}
+
 void
 OS4_SetWindowSize(_THIS, SDL_Window * window)
 {
@@ -501,26 +550,9 @@ OS4_SetWindowSize(_THIS, SDL_Window * window)
 
         if (width != window->w || height != window->h) {
 
-            LONG ret;
-
             dprintf("New window size %d*%d\n", window->w, window->h);
 
-            if (SDL_IsShapedWindow(window)) {
-                OS4_ResizeWindowShape(window);
-            }
-
-            ret = IIntuition->SetWindowAttrs(data->syswin,
-                WA_InnerWidth, window->w,
-                WA_InnerHeight, window->h,
-                TAG_DONE);
-
-            if (ret) {
-                dprintf("SetWindowAttrs() returned %d\n", ret);
-            }
-
-            if (data->glContext /*window->flags & SDL_WINDOW_OPENGL*/) {
-                OS4_ResizeGlContext(_this, window);
-            }
+            OS4_ResizeWindow(_this, window, window->w, window->h);
         } else {
             dprintf("Ignored size request %d*%d\n", width, height);
         }
@@ -857,22 +889,83 @@ OS4_GetWindowBordersSize(_THIS, SDL_Window * window, int * top, int * left, int 
 }
 
 void
-OS4_MaximizeWindow(_THIS, SDL_Window * window)
+OS4_SetWindowMinMaxSize(_THIS, SDL_Window * window)
 {
-    dprintf("implement me\n");
+    if (window->driverdata) {
+
+        dprintf("Window min size %d*%d, max size %d*%d\n",
+            window->min_w, window->min_h,
+            window->max_w, window->max_h);
+
+        if (window->flags & SDL_WINDOW_RESIZABLE) {
+
+            SDL_WindowData *data = window->driverdata;
+
+            if (data->syswin) {
+                struct Window *syswin = data->syswin;
+
+                int width = syswin->BorderLeft + syswin->BorderRight;
+                int height = syswin->BorderTop + syswin->BorderBottom;
+
+                BOOL ret =IIntuition->WindowLimits(data->syswin,
+                    window->min_w + width, window->min_h + height,
+                    window->max_w + width, window->max_h + height);
+
+                if (!ret) {
+                    dprintf("Setting window limits failed\n");
+                }
+            } else {
+                dprintf("NULL window\n");
+            }
+        } else {
+            dprintf("Window is not resizable\n");
+        }
+    }
 }
 
-/* Iconify window */
+void
+OS4_MaximizeWindow(_THIS, SDL_Window * window)
+{
+    dprintf("Maximizing '%s' to %d*%d\n", window->title, window->max_w, window->max_h);
+
+    if (window->flags & SDL_WINDOW_MINIMIZED) {
+        OS4_UniconifyWindow(_this, window);
+    }
+
+    // HACK: set flag temporarily so that shaped window and OpenGL
+    // context can be resized accordingly...
+    window->flags |= SDL_WINDOW_MAXIMIZED;
+
+    OS4_ResizeWindow(_this, window, window->max_w, window->max_h);
+
+    // ...then remove the flag so that user event can be triggered
+    window->flags &= ~SDL_WINDOW_MAXIMIZED;
+
+    SDL_SendWindowEvent(window, SDL_WINDOWEVENT_MAXIMIZED, 0, 0);
+}
+
 void
 OS4_MinimizeWindow(_THIS, SDL_Window * window)
 {
-    dprintf("implement me\n");
+    dprintf("Minimizing '%s'\n", window->title);
+
+    OS4_IconifyWindow(_this, window);
 }
 
 void
 OS4_RestoreWindow(_THIS, SDL_Window * window)
 {
-    dprintf("implement me\n");
+    dprintf("Restoring '%s' to %d*%d\n", window->title, window->w, window->h);
+
+    if (window->flags & SDL_WINDOW_MINIMIZED) {
+        OS4_UniconifyWindow(_this, window);
+    } else if (window->flags & SDL_WINDOW_MAXIMIZED) {
+        OS4_ResizeWindow(_this, window, window->w, window->h);
+
+        SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESTORED, 0, 0);
+    } else {
+        dprintf("Don't know what to do\n");
+    }
 }
 
 void
@@ -883,27 +976,37 @@ OS4_IconifyWindow(_THIS, SDL_Window * window)
 
         SDL_WindowData *data = window->driverdata;
 
-        struct DiskObject *diskObject = IIcon->GetDiskObjectNew("ENVARC:Sys/def_window");
-
-        if (diskObject) {
-            data->appIcon = IWorkbench->AddAppIcon(
-                0,
-                (ULONG)window,
-                window->title,
-                videodata->appMsgPort,
-                0,
-                diskObject,
-                TAG_DONE);
-
-            if (!data->appIcon) {
-                dprintf("Failed to add AppIcon\n");
-            } else {
-                OS4_HideWindow(_this, window);
-            }
-
-            IIcon->FreeDiskObject(diskObject);
+        if (window->flags & SDL_WINDOW_MINIMIZED) {
+            dprintf("Window '%s' is already iconified\n", window->title);
         } else {
-            dprintf("Failed to get disk object\n");
+            CONST_STRPTR iconName = "ENVARC:Sys/def_window";
+
+            struct DiskObject *diskObject = IIcon->GetDiskObjectNew(iconName);
+
+            if (diskObject) {
+                data->appIcon = IWorkbench->AddAppIcon(
+                    0,
+                    (ULONG)window,
+                    window->title,
+                    videodata->appMsgPort,
+                    0,
+                    diskObject,
+                    TAG_DONE);
+
+                if (!data->appIcon) {
+                    dprintf("Failed to add AppIcon\n");
+                } else {
+                    dprintf("Iconifying '%s'\n", window->title);
+
+                    OS4_HideWindow(_this, window);
+
+                    SDL_SendWindowEvent(window, SDL_WINDOWEVENT_MINIMIZED, 0, 0);
+                }
+
+                IIcon->FreeDiskObject(diskObject);
+            } else {
+                dprintf("Failed to load '%s'\n", iconName);
+            }
         }
     }
 }
@@ -912,10 +1015,16 @@ void
 OS4_UniconifyWindow(_THIS, SDL_Window * window)
 {
     if (window && window->driverdata) {
-        dprintf("here\n");
+        if (window->flags & SDL_WINDOW_MINIMIZED) {
+            dprintf("Restoring '%s'\n", window->title);
 
-        OS4_RemoveAppIcon(_this, window->driverdata);
-        OS4_ShowWindow(_this, window);
+            OS4_RemoveAppIcon(_this, window->driverdata);
+            OS4_ShowWindow(_this, window);
+
+            SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESTORED, 0, 0);
+        } else {
+            dprintf("Window '%s' isn't in iconified state\n", window->title);
+        }
     }
 }
 
@@ -930,21 +1039,18 @@ OS4_IconifyWindows(_THIS)
 
         if (!OS4_IsFullscreen(sdlwin) && data->syswin) {
 
-            if (!data->iconified) {
-                dprintf("Iconifying window\n");
+            if (sdlwin->flags & SDL_WINDOW_MINIMIZED) {
+                dprintf("Window '%s' already iconified\n", sdlwin->title);
+            } else {
+                dprintf("Iconifying window '%s'\n", sdlwin->title);
 
                 OS4_CloseWindow(_this, sdlwin);
 
                 SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_MINIMIZED, 0, 0);
-
-                data->iconified = TRUE;
-            } else {
-                dprintf("Window already iconified\n");
             }
         }
     }
 
-    // TODO: should we send some event to user?
     OS4_UnlockPubScreen(_this);
 }
 
@@ -961,19 +1067,16 @@ OS4_UniconifyWindows(_THIS)
 
             if (!OS4_IsFullscreen(sdlwin) && !data->syswin) {
 
-                if (data->iconified) {
+                if (sdlwin->flags & SDL_WINDOW_MINIMIZED) {
                     dprintf("Uniconifying window\n");
 
                     OS4_CreateWindow(_this, sdlwin);
 
-                    SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_SHOWN, 0, 0);
-                    data->iconified = FALSE;
+                    SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_RESTORED, 0, 0);
                 } else {
                     dprintf("Window not iconified\n");
                 }
             }
-
-            // TODO: should we send some event to user?
         }
 
     } else {

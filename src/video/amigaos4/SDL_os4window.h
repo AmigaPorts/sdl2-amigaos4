@@ -51,13 +51,13 @@ typedef struct
 
     HitTestInfo       hti;
 
-    BOOL              iconified;
     struct Gadget   * gadget;
     struct Image    * image;
 
 } SDL_WindowData;
 
 extern void OS4_GetWindowSize(_THIS, struct Window * window, int * width, int * height);
+extern void OS4_GetWindowActiveSize(SDL_Window * window, int * width, int * height);
 
 extern int OS4_CreateWindow(_THIS, SDL_Window * window);
 extern int OS4_CreateWindowFrom(_THIS, SDL_Window * window, const void *data);
@@ -69,9 +69,13 @@ extern void OS4_SetWindowSize(_THIS, SDL_Window * window);
 extern void OS4_ShowWindow(_THIS, SDL_Window * window);
 extern void OS4_HideWindow(_THIS, SDL_Window * window);
 extern void OS4_RaiseWindow(_THIS, SDL_Window * window);
+
+extern void OS4_SetWindowMinMaxSize(_THIS, SDL_Window * window);
+
 extern void OS4_MaximizeWindow(_THIS, SDL_Window * window);
 extern void OS4_MinimizeWindow(_THIS, SDL_Window * window);
 extern void OS4_RestoreWindow(_THIS, SDL_Window * window);
+
 extern void OS4_SetWindowBordered(_THIS, SDL_Window * window, SDL_bool bordered);
 extern void OS4_SetWindowFullscreen(_THIS, SDL_Window * window, SDL_VideoDisplay * display, SDL_bool fullscreen);
 //extern int OS4_SetWindowGammaRamp(_THIS, SDL_Window * window, const Uint16 * ramp);

@@ -495,9 +495,14 @@ OS4_SetFunctionPointers(SDL_VideoDevice * device)
     device->ShowWindow = OS4_ShowWindow;
     device->HideWindow = OS4_HideWindow;
     device->RaiseWindow = OS4_RaiseWindow;
+
+    device->SetWindowMinimumSize = OS4_SetWindowMinMaxSize;
+    device->SetWindowMaximumSize = OS4_SetWindowMinMaxSize;
+
     device->MaximizeWindow = OS4_MaximizeWindow;
     device->MinimizeWindow = OS4_MinimizeWindow;
     device->RestoreWindow = OS4_RestoreWindow;
+
     //device->SetWindowBordered = OS4_SetWindowBordered; // Not supported by SetWindowAttrs()?
     device->SetWindowFullscreen = OS4_SetWindowFullscreen;
     //device->SetWindowGammaRamp = OS4_SetWindowGammaRamp;
