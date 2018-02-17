@@ -968,6 +968,58 @@ OS4_RestoreWindow(_THIS, SDL_Window * window)
     }
 }
 
+#define MAX_PATH 512
+
+static char *
+OS4_GetIconFileName(_THIS)
+{
+    char *buffer = SDL_malloc(MAX_PATH);
+
+    if (buffer) {
+        char tempBuffer[MAX_PATH];
+
+        if (IDOS->GetCliProgramName(tempBuffer, MAX_PATH - 1)) {
+
+            CONST_STRPTR filePart = IDOS->FilePart(tempBuffer);
+
+            snprintf(buffer, MAX_PATH, "PROGDIR:%s", filePart);
+        } else {
+            dprintf("Failed to get CLI program name, checking task node\n");
+
+            struct Task* me = IExec->FindTask(NULL);
+            snprintf(buffer, MAX_PATH, "%s", ((struct Node *)me)->ln_Name);
+        }
+    } else {
+        dprintf("Failed to allocate path buffer\n");
+    }
+
+    dprintf("Program path: '%s'\n", buffer);
+
+    return buffer;
+}
+
+static struct DiskObject*
+OS4_GetDiskObject(_THIS)
+{
+    struct DiskObject *diskObject = NULL;
+
+    char *iconName = OS4_GetIconFileName(_this);
+
+    if (iconName) {
+        diskObject = IIcon->GetDiskObject(iconName);
+        SDL_free(iconName);
+    }
+
+    if (!diskObject) {
+        CONST_STRPTR fallbackIconName = "ENVARC:Sys/def_window";
+
+        dprintf("Falling back to '%s'\n", fallbackIconName);
+        diskObject = IIcon->GetDiskObjectNew(fallbackIconName);
+    }
+
+    return diskObject;
+}
+
 void
 OS4_IconifyWindow(_THIS, SDL_Window * window)
 {
@@ -979,9 +1031,7 @@ OS4_IconifyWindow(_THIS, SDL_Window * window)
         if (window->flags & SDL_WINDOW_MINIMIZED) {
             dprintf("Window '%s' is already iconified\n", window->title);
         } else {
-            CONST_STRPTR iconName = "ENVARC:Sys/def_window";
-
-            struct DiskObject *diskObject = IIcon->GetDiskObjectNew(iconName);
+            struct DiskObject *diskObject = OS4_GetDiskObject(_this);
 
             if (diskObject) {
                 data->appIcon = IWorkbench->AddAppIcon(
@@ -1005,7 +1055,7 @@ OS4_IconifyWindow(_THIS, SDL_Window * window)
 
                 IIcon->FreeDiskObject(diskObject);
             } else {
-                dprintf("Failed to load '%s'\n", iconName);
+                dprintf("Failed to load icon\n");
             }
         }
     }

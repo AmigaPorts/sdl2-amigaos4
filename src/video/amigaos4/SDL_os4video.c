@@ -81,9 +81,10 @@ OS4_OpenLibraries(_THIS)
     WorkbenchBase = OS4_OpenLibrary("workbench.library", MIN_LIB_VERSION);
     KeymapBase    = OS4_OpenLibrary("keymap.library", MIN_LIB_VERSION);
     TextClipBase  = OS4_OpenLibrary("textclip.library", MIN_LIB_VERSION);
+    DOSBase       = OS4_OpenLibrary("dos.library", MIN_LIB_VERSION);
 
     if (GfxBase && LayersBase && IntuitionBase && IconBase &&
-        WorkbenchBase && KeymapBase && TextClipBase) {
+        WorkbenchBase && KeymapBase && TextClipBase && DOSBase) {
 
         IGraphics  = (struct GraphicsIFace *)  OS4_GetInterface(GfxBase);
         ILayers    = (struct LayersIFace *)    OS4_GetInterface(LayersBase);
@@ -92,9 +93,10 @@ OS4_OpenLibraries(_THIS)
         IWorkbench = (struct WorkbenchIFace *) OS4_GetInterface(WorkbenchBase);
         IKeymap    = (struct KeymapIFace *)    OS4_GetInterface(KeymapBase);
         ITextClip  = (struct TextClipIFace *)  OS4_GetInterface(TextClipBase);
+        IDOS       = (struct DOSIFace *)       OS4_GetInterface(DOSBase);
 
         if (IGraphics && ILayers && IIntuition && IIcon &&
-            IWorkbench && IKeymap && ITextClip) {
+            IWorkbench && IKeymap && ITextClip && IDOS) {
 
             dprintf("All library interfaces OK\n");
 
@@ -115,6 +117,7 @@ OS4_CloseLibraries(_THIS)
 {
     dprintf("Closing libraries\n");
 
+    OS4_DropInterface((void *)&IDOS);
     OS4_DropInterface((void *)&ITextClip);
     OS4_DropInterface((void *)&IKeymap);
     OS4_DropInterface((void *)&IWorkbench);
@@ -123,6 +126,7 @@ OS4_CloseLibraries(_THIS)
     OS4_DropInterface((void *)&ILayers);
     OS4_DropInterface((void *)&IGraphics);
 
+    OS4_CloseLibrary(&DOSBase);
     OS4_CloseLibrary(&TextClipBase);
     OS4_CloseLibrary(&KeymapBase);
     OS4_CloseLibrary(&WorkbenchBase);
