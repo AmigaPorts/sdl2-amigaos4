@@ -104,6 +104,19 @@ Always check the return values of functions and in error case you can get more
 information using SDL_GetError() function!
 
 ================================================================================
+Limitations
+================================================================================
+
+Altivec support is disabled. It should be possible to enable in private builds
+but it hasn't been tested so far.
+
+Unsupported subsystems include Haptic and Power. There is no Vulkan backend for
+AmigaOS either.
+
+OpenGL renderer doesn't support render targets and blend modes "ADD" or "MOD".
+This is due to missing features in MiniGL.
+
+================================================================================
 Bugs
 ================================================================================
 
