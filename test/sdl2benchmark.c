@@ -47,6 +47,7 @@ typedef struct {
     Uint32 operations;
     Uint32 *buffer;
     SDL_bool running;
+    const char* rendname;
 } Context;
 
 typedef struct {
@@ -608,8 +609,12 @@ static void checkEvents(Context *ctx)
 
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_KEYDOWN) {
-            SDL_Log("Quitting...\n");
-            ctx->running = SDL_FALSE;
+            SDL_KeyboardEvent *ke = (SDL_KeyboardEvent *)&e;
+
+            if (ke->keysym.sym == SDLK_ESCAPE) {
+                SDL_Log("Quitting...\n");
+                ctx->running = SDL_FALSE;
+            }
         }
     }
 }
@@ -635,12 +640,16 @@ static void runTestSuite(Context *ctx)
 
 static void checkParameters(Context *ctx, int argc, char **argv)
 {
-    if (argc > 2) {
+    if (argc > 3) {
         ctx->sleep = atoi(argv[2]);
     }
 
-    if (argc > 1) {
+    if (argc > 2) {
         ctx->iterations = atoi(argv[1]);
+    }
+
+    if (argc > 1) {
+        ctx->rendname = argv[1];
     }
 }
 
@@ -660,8 +669,8 @@ static void initContext(Context *ctx, int argc, char **argv)
 
     checkParameters(ctx, argc, argv);
 
-    SDL_Log("Parameters: width %d, height %d, iterations %d, objects %d, sleep %d\n",
-        ctx->width, ctx->height, ctx->iterations, ctx->objects, ctx->sleep);
+    SDL_Log("Parameters: width %d, height %d, renderer name '%s', iterations %d, objects %d, sleep %d\n",
+        ctx->width, ctx->height, ctx->rendname, ctx->iterations, ctx->objects, ctx->sleep);
 }
 
 static void checkPixelFormat(Context *ctx)
@@ -677,6 +686,44 @@ static void checkPixelFormat(Context *ctx)
     }
 }
 
+static void testRenderer(Context *ctx)
+{
+    if (ctx->renderer) {
+        printInfo(ctx);
+
+        runTestSuite(ctx);
+
+        SDL_DestroyRenderer(ctx->renderer);
+    } else {
+        SDL_Log("Failed to create renderer: %s\n", SDL_GetError());
+    }
+}
+
+static void testSpecificRenderer(Context *ctx)
+{
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, ctx->rendname);
+
+    ctx->renderer = SDL_CreateRenderer(ctx->window, -1, 0);
+
+    testRenderer(ctx);
+}
+
+static void testAllRenderers(Context *ctx)
+{
+    int r;
+
+    for (r = 0; r < SDL_GetNumRenderDrivers(); r++) {
+
+        ctx->renderer = SDL_CreateRenderer(ctx->window, r, 0);
+
+        testRenderer(ctx);
+
+        if (!ctx->running) {
+            break;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     Context ctx;
@@ -689,7 +736,7 @@ int main(int argc, char **argv)
 
     SDL_GetVersion(&linked);
 
-    SDL_Log("SDL2 renderer benchmark v. 0.3 (SDL version %d.%d.%d)\n",
+    SDL_Log("SDL2 renderer benchmark v. 0.4 (SDL version %d.%d.%d)\n",
         linked.major, linked.minor, linked.patch);
 
     SDL_Log("This tool measures the speed of various 2D drawing features\n");
@@ -713,29 +760,12 @@ int main(int argc, char **argv)
 
         if (ctx.window) {
 
-            int r;
-
             checkPixelFormat(&ctx);
 
-            for (r = 0; r < SDL_GetNumRenderDrivers(); r++) {
-
-                ctx.renderer = SDL_CreateRenderer(ctx.window, r, 0);
-
-                if (ctx.renderer) {
-
-                    printInfo(&ctx);
-
-                    runTestSuite(&ctx);
-
-                    SDL_DestroyRenderer(ctx.renderer);
-
-                    if (!ctx.running) {
-                        break;
-                    }
-
-                } else {
-                    SDL_Log("Failed to create renderer: %s\n", SDL_GetError());
-                }
+            if (ctx.rendname) {
+                testSpecificRenderer(&ctx);
+            } else {
+                testAllRenderers(&ctx);
             }
 
             SDL_DestroyWindow(ctx.window);
