@@ -1,22 +1,23 @@
 /*
 
 This is a simple SDL2 renderer benchmark tool. It test every active
-renderer with different blend modes.
+renderer with available blend modes.
 
 On AmigaOS, result may be affected by Workbench screen depth in case
 pixel conversion takes place. For example compositing renderer works
 best with 32-bit screen mode.
 
-Some blend modes may not be supported for all renderers. These tests will give failure.
+Some blend modes may not be supported for all renderers. These tests
+will give failure.
 
 TODO:
 - command line arguments for things like window size, iterations...
 
-gcc -Wall -O3 sdl2benchmark.c -lSDL2 -lpthread -use-dynld
-
 */
 
 #include "SDL2/SDL.h"
+
+#define BENCHMARK_VERSION "0.5"
 
 #define WIDTH 800
 #define HEIGHT 600
@@ -27,6 +28,10 @@ gcc -Wall -O3 sdl2benchmark.c -lSDL2 -lpthread -use-dynld
 #define OBJECTS 100
 
 #define SLEEP 0
+
+#ifdef __amigaos4__
+static const char stackCookie[] __attribute__((used)) = "$STACK:60000";
+#endif
 
 typedef struct {
     SDL_Renderer *renderer;
@@ -638,14 +643,15 @@ static void runTestSuite(Context *ctx)
     }
 }
 
+/* TODO: need proper handling */
 static void checkParameters(Context *ctx, int argc, char **argv)
 {
     if (argc > 3) {
-        ctx->sleep = atoi(argv[2]);
+        ctx->sleep = atoi(argv[3]);
     }
 
     if (argc > 2) {
-        ctx->iterations = atoi(argv[1]);
+        ctx->iterations = atoi(argv[2]);
     }
 
     if (argc > 1) {
@@ -736,7 +742,7 @@ int main(int argc, char **argv)
 
     SDL_GetVersion(&linked);
 
-    SDL_Log("SDL2 renderer benchmark v. 0.4 (SDL version %d.%d.%d)\n",
+    SDL_Log("SDL2 renderer benchmark v. " BENCHMARK_VERSION " (SDL version %d.%d.%d)\n",
         linked.major, linked.minor, linked.patch);
 
     SDL_Log("This tool measures the speed of various 2D drawing features\n");
