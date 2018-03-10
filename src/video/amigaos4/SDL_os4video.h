@@ -41,6 +41,7 @@
 typedef struct
 {
     BOOL                    running;
+    STRPTR                  appName;
 
     struct Screen          *publicScreen;
 

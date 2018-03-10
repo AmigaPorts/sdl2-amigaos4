@@ -968,46 +968,14 @@ OS4_RestoreWindow(_THIS, SDL_Window * window)
     }
 }
 
-#define MAX_PATH 512
-
-static char *
-OS4_GetIconFileName(_THIS)
-{
-    char *buffer = SDL_malloc(MAX_PATH);
-
-    if (buffer) {
-        char tempBuffer[MAX_PATH];
-
-        if (IDOS->GetCliProgramName(tempBuffer, MAX_PATH - 1)) {
-
-            CONST_STRPTR filePart = IDOS->FilePart(tempBuffer);
-
-            snprintf(buffer, MAX_PATH, "PROGDIR:%s", filePart);
-        } else {
-            dprintf("Failed to get CLI program name, checking task node\n");
-
-            struct Task* me = IExec->FindTask(NULL);
-            snprintf(buffer, MAX_PATH, "%s", ((struct Node *)me)->ln_Name);
-        }
-    } else {
-        dprintf("Failed to allocate path buffer\n");
-    }
-
-    dprintf("Program path: '%s'\n", buffer);
-
-    return buffer;
-}
-
 static struct DiskObject*
 OS4_GetDiskObject(_THIS)
 {
+    SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
     struct DiskObject *diskObject = NULL;
 
-    char *iconName = OS4_GetIconFileName(_this);
-
-    if (iconName) {
-        diskObject = IIcon->GetDiskObject(iconName);
-        SDL_free(iconName);
+    if (videodata->appName) {
+        diskObject = IIcon->GetDiskObject(videodata->appName);
     }
 
     if (!diskObject) {
@@ -1037,7 +1005,7 @@ OS4_IconifyWindow(_THIS, SDL_Window * window)
                 data->appIcon = IWorkbench->AddAppIcon(
                     0,
                     (ULONG)window,
-                    window->title,
+                    videodata->appName,
                     videodata->appMsgPort,
                     0,
                     diskObject,

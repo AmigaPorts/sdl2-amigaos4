@@ -251,6 +251,38 @@ done:
     return 0;
 }
 
+static void
+OS4_FindApplicationName(_THIS)
+{
+    SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
+
+    size_t size;
+
+    char pathBuffer[MAX_DOS_PATH];
+    char nameBuffer[MAX_DOS_FILENAME];
+
+    if (IDOS->GetCliProgramName(pathBuffer, MAX_DOS_PATH - 1)) {
+        CONST_STRPTR filePart = IDOS->FilePart(pathBuffer);
+
+        snprintf(nameBuffer, MAX_DOS_FILENAME, "%s", filePart);
+    } else {
+        dprintf("Failed to get CLI program name, checking task node\n");
+
+        struct Task* me = IExec->FindTask(NULL);
+        snprintf(nameBuffer, MAX_DOS_FILENAME, "%s", ((struct Node *)me)->ln_Name);
+    }
+
+    size = SDL_strlen(nameBuffer) + 1;
+
+    data->appName = SDL_malloc(size);
+
+    if (data->appName) {
+        snprintf(data->appName, size, nameBuffer);
+    }
+
+    dprintf("Application name: '%s'\n", data->appName);
+}
+
 static SDL_bool
 OS4_AllocSystemResources(_THIS)
 {
@@ -261,6 +293,8 @@ OS4_AllocSystemResources(_THIS)
     if (!OS4_OpenLibraries(_this)) {
         return SDL_FALSE;
     }
+
+    OS4_FindApplicationName(_this);
 
     data->running = TRUE;
     data->mainTask = IExec->FindTask(NULL);
@@ -394,6 +428,10 @@ OS4_FreeSystemResources(_THIS)
 
     if (data->userPort) {
         IExec->FreeSysObject(ASOT_PORT, data->userPort);
+    }
+
+    if (data->appName) {
+        SDL_free(data->appName);
     }
 
     OS4_CloseLibraries(_this);
@@ -600,7 +638,7 @@ OS4_VideoInit(_THIS)
     dprintf("Called\n");
 
     if (OS4_InitModes(_this) < 0) {
-        return -1;
+        return SDL_SetError("Failed to initialize modes");
     }
 
     OS4_InitKeyboard(_this);
