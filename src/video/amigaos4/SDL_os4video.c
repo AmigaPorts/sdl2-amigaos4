@@ -181,8 +181,6 @@ OS4_AllocSystemResources(_THIS)
 
     OS4_FindApplicationName(_this);
 
-    data->running = TRUE;
-
     if (!(data->userPort = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
         SDL_SetError("Couldn't allocate message port");
         return SDL_FALSE;
@@ -243,8 +241,6 @@ OS4_FreeSystemResources(_THIS)
     SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
 
     dprintf("Called\n");
-
-    data->running = FALSE;
 
     OS4_DropInterface((void *)&IInput);
 
