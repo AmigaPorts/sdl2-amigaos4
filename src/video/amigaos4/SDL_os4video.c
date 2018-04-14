@@ -182,7 +182,6 @@ OS4_AllocSystemResources(_THIS)
     OS4_FindApplicationName(_this);
 
     data->running = TRUE;
-    data->mainTask = IExec->FindTask(NULL);
 
     if (!(data->userPort = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
         SDL_SetError("Couldn't allocate message port");

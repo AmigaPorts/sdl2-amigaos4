@@ -45,7 +45,6 @@ typedef struct
 
     struct Screen          *publicScreen;
 
-    struct Task            *mainTask;
     struct MsgPort         *userPort;
     struct MsgPort         *appMsgPort;
 
