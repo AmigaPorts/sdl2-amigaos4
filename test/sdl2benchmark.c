@@ -1,22 +1,23 @@
 /*
 
 This is a simple SDL2 renderer benchmark tool. It test every active
-renderer with different blend modes.
+renderer with available blend modes.
 
 On AmigaOS, result may be affected by Workbench screen depth in case
 pixel conversion takes place. For example compositing renderer works
 best with 32-bit screen mode.
 
-Some blend modes may not be supported for all renderers. These tests will give failure.
+Some blend modes may not be supported for all renderers. These tests
+will give failure.
 
 TODO:
 - command line arguments for things like window size, iterations...
 
-gcc -Wall -O3 sdl2benchmark.c -lSDL2 -lpthread -use-dynld
-
 */
 
 #include "SDL2/SDL.h"
+
+#define BENCHMARK_VERSION "0.5"
 
 #define WIDTH 800
 #define HEIGHT 600
@@ -27,6 +28,10 @@ gcc -Wall -O3 sdl2benchmark.c -lSDL2 -lpthread -use-dynld
 #define OBJECTS 100
 
 #define SLEEP 0
+
+#ifdef __amigaos4__
+static const char stackCookie[] __attribute__((used)) = "$STACK:60000";
+#endif
 
 typedef struct {
     SDL_Renderer *renderer;
@@ -46,6 +51,8 @@ typedef struct {
     Uint32 frames;
     Uint32 operations;
     Uint32 *buffer;
+    SDL_bool running;
+    const char* rendname;
 } Context;
 
 typedef struct {
@@ -114,29 +121,10 @@ static void printInfo(Context *ctx)
     result = SDL_GetRendererInfo(ctx->renderer, &ri);
 
     if (result) {
-        SDL_Log("Failed to get renderer info\n");
+        SDL_Log("Failed to get renderer info: %s\n", SDL_GetError());
     } else {
 
         SDL_Log("Starting to test renderer called [%s], flags 0x%X\n", ri.name, ri.flags);
-    }
-}
-
-static void updateWindowTitle(Context *ctx, Test *test)
-{
-    SDL_RendererInfo ri;
-    int result;
-
-    result = SDL_GetRendererInfo(ctx->renderer, &ri);
-
-    if (result) {
-        SDL_Log("Failed to get renderer info\n");
-    } else {
-        char title[128];
-
-        snprintf(title, sizeof(title), "Testing '%s' renderer - %s, blend mode %s",
-            ri.name, test->name, getModeName(ctx->mode));
-
-        SDL_SetWindowTitle(ctx->window, title);
     }
 }
 
@@ -157,14 +145,14 @@ static SDL_bool clearDisplay(Context *ctx)
     }
 
     if (result) {
-        SDL_Log("[%s]Failed to set draw color\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set draw color: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
     result = SDL_RenderClear(ctx->renderer);
 
     if (result) {
-        SDL_Log("[%s]Failed to clear\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to clear: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
@@ -203,7 +191,7 @@ static SDL_bool prepareTexture(Context *ctx)
     result = SDL_SetColorKey(ctx->surface, 1, 0);
 
     if (result) {
-        SDL_Log("[%s]Failed to set color key\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set color key: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
@@ -214,14 +202,14 @@ static SDL_bool prepareTexture(Context *ctx)
     ctx->texture = SDL_CreateTextureFromSurface(ctx->renderer, ctx->surface);
 
     if (!ctx->texture) {
-        SDL_Log("[%s]Failed to create texture\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to create texture: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
     result = SDL_SetTextureBlendMode(ctx->texture, ctx->mode);
 
     if (result) {
-        SDL_Log("[%s]Failed to set texture blend mode\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set texture blend mode: %s\n", __FUNCTION__, SDL_GetError());
         
         SDL_DestroyTexture(ctx->texture);
         ctx->texture = NULL;
@@ -235,7 +223,7 @@ static SDL_bool prepareTexture(Context *ctx)
     ctx->buffer = SDL_malloc(ctx->texturewidth * ctx->textureheight * sizeof(Uint32));
 
     if (!ctx->buffer) {
-        SDL_Log("[%s]Failed to alloc buffer\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to allocate texture buffer: %s\n", __FUNCTION__, SDL_GetError());
         SDL_DestroyTexture(ctx->texture);
         ctx->texture = NULL;
         return SDL_FALSE;
@@ -248,8 +236,6 @@ static SDL_bool prepareTexture(Context *ctx)
 
 static SDL_bool prepareTest(Context *ctx, Test *test)
 {
-    updateWindowTitle(ctx, test);
-
     if (!clearDisplay(ctx)) {
         return SDL_FALSE;
     }
@@ -334,7 +320,7 @@ static SDL_bool setRandomColor(Context *ctx)
         getRand(256), getRand(256), getRand(256), getRand(256));
 
     if (result) {
-        SDL_Log("[%s]Failed to set color\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set color: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
@@ -348,7 +334,7 @@ static SDL_bool testPointsInner(Context *ctx, SDL_bool linemode)
     result = SDL_SetRenderDrawBlendMode(ctx->renderer, ctx->mode);
     
     if (result) {
-        SDL_Log("[%s]Failed to set blend mode\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set blend mode: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
@@ -375,7 +361,7 @@ static SDL_bool testPointsInner(Context *ctx, SDL_bool linemode)
         ctx->operations++;
 
         if (result) {
-            SDL_Log("[%s]Failed to draw points\n", __FUNCTION__);
+            SDL_Log("[%s]Failed to draw lines/points: %s\n", __FUNCTION__, SDL_GetError());
             return SDL_FALSE;
         }
 
@@ -403,7 +389,7 @@ static SDL_bool testFillRects(Context *ctx)
     result = SDL_SetRenderDrawBlendMode(ctx->renderer, ctx->mode);
 
     if (result) {
-        SDL_Log("[%s]Failed to set blend mode\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set blend mode: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
@@ -429,7 +415,7 @@ static SDL_bool testFillRects(Context *ctx)
         result = SDL_RenderFillRects(ctx->renderer, rects, ctx->objects);
 
         if (result) {
-            SDL_Log("[%s]Failed to draw lines\n", __FUNCTION__);
+            SDL_Log("[%s]Failed to draw filled rectangles: %s\n", __FUNCTION__, SDL_GetError());
             return SDL_FALSE;
         }
 
@@ -478,7 +464,7 @@ static SDL_bool testRenderCopyInner(Context *ctx, SDL_bool ex) {
             }
 
             if (result) {
-                SDL_Log("[%s]Failed to draw texture\n", __FUNCTION__);
+                SDL_Log("[%s]Failed to draw texture: %s\n", __FUNCTION__, SDL_GetError());
                 return SDL_FALSE;
             }
 
@@ -523,7 +509,7 @@ static SDL_bool testColorModulation(Context *ctx)
         int c = i % count;
 
         if (SDL_SetTextureColorMod(ctx->texture, colors[c].r, colors[c].g, colors[c].b)) {
-            SDL_Log("[%s]Failed to set color modulation\n", __FUNCTION__);
+            SDL_Log("[%s]Failed to set color modulation: %s\n", __FUNCTION__, SDL_GetError());
             result = SDL_FALSE;
             break;
         }    
@@ -539,7 +525,7 @@ static SDL_bool testColorModulation(Context *ctx)
 static SDL_bool testAlphaModulation(Context *ctx)
 {
     if (SDL_SetTextureAlphaMod(ctx->texture, 127)) {
-        SDL_Log("[%s]Failed to set alpha modulation\n", __FUNCTION__);
+        SDL_Log("[%s]Failed to set alpha modulation: %s\n", __FUNCTION__, SDL_GetError());
         return SDL_FALSE;
     }
 
@@ -568,13 +554,13 @@ static SDL_bool testUpdateTexture(Context *ctx)
     for (i = 0; i < count; i++) {
 
         if (SDL_SetTextureColorMod(ctx->texture, colors[i].r, colors[i].g, colors[i].b)) {
-            SDL_Log("[%s]Failed to set color modulation\n", __FUNCTION__);
+            SDL_Log("[%s]Failed to set color modulation: %s\n", __FUNCTION__, SDL_GetError());
             result = SDL_FALSE;
             break;
         }
 
         if (SDL_UpdateTexture(ctx->texture, NULL, ctx->buffer, ctx->texturewidth * sizeof(Uint32))) {
-            SDL_Log("[%s]Failed to update texture\n", __FUNCTION__);
+            SDL_Log("[%s]Failed to update texture: %s\n", __FUNCTION__, SDL_GetError());
             result = SDL_FALSE;
             break;
         }
@@ -610,7 +596,7 @@ static SDL_bool testReadPixels(Context *ctx)
             ctx->buffer,
             ctx->texturewidth * sizeof(Uint32)) != 0) {
 
-            SDL_Log("[%s]Failed to read pixels\n", __FUNCTION__);
+            SDL_Log("[%s]Failed to read pixels: %s\n", __FUNCTION__, SDL_GetError());
 
             result = SDL_FALSE;
             break;
@@ -622,6 +608,22 @@ static SDL_bool testReadPixels(Context *ctx)
     return result;
 }
 
+static void checkEvents(Context *ctx)
+{
+    SDL_Event e;
+
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_KEYDOWN) {
+            SDL_KeyboardEvent *ke = (SDL_KeyboardEvent *)&e;
+
+            if (ke->keysym.sym == SDLK_ESCAPE) {
+                SDL_Log("Quitting...\n");
+                ctx->running = SDL_FALSE;
+            }
+        }
+    }
+}
+
 static void runTestSuite(Context *ctx)
 {
     int m, t;
@@ -631,18 +633,29 @@ static void runTestSuite(Context *ctx)
             ctx->mode = modes[m].mode;
             
             runTest(ctx, &tests[t]);
+
+            checkEvents(ctx);
+
+            if (!ctx->running) {
+                return;
+            }
         }
     }
 }
 
+/* TODO: need proper handling */
 static void checkParameters(Context *ctx, int argc, char **argv)
 {
+    if (argc > 3) {
+        ctx->sleep = atoi(argv[3]);
+    }
+
     if (argc > 2) {
-        ctx->sleep = atoi(argv[2]);
+        ctx->iterations = atoi(argv[2]);
     }
 
     if (argc > 1) {
-        ctx->iterations = atoi(argv[1]);
+        ctx->rendname = argv[1];
     }
 }
 
@@ -658,11 +671,12 @@ static void initContext(Context *ctx, int argc, char **argv)
     ctx->iterations = ITERATIONS;
     ctx->objects = OBJECTS;
     ctx->sleep = SLEEP;
+    ctx->running = SDL_TRUE;
 
     checkParameters(ctx, argc, argv);
 
-    SDL_Log("Parameters: width %d, height %d, iterations %d, objects %d, sleep %d\n",
-        ctx->width, ctx->height, ctx->iterations, ctx->objects, ctx->sleep);
+    SDL_Log("Parameters: width %d, height %d, renderer name '%s', iterations %d, objects %d, sleep %d\n",
+        ctx->width, ctx->height, ctx->rendname, ctx->iterations, ctx->objects, ctx->sleep);
 }
 
 static void checkPixelFormat(Context *ctx)
@@ -678,22 +692,61 @@ static void checkPixelFormat(Context *ctx)
     }
 }
 
+static void testRenderer(Context *ctx)
+{
+    if (ctx->renderer) {
+        printInfo(ctx);
+
+        runTestSuite(ctx);
+
+        SDL_DestroyRenderer(ctx->renderer);
+    } else {
+        SDL_Log("Failed to create renderer: %s\n", SDL_GetError());
+    }
+}
+
+static void testSpecificRenderer(Context *ctx)
+{
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, ctx->rendname);
+
+    ctx->renderer = SDL_CreateRenderer(ctx->window, -1, 0);
+
+    testRenderer(ctx);
+}
+
+static void testAllRenderers(Context *ctx)
+{
+    int r;
+
+    for (r = 0; r < SDL_GetNumRenderDrivers(); r++) {
+
+        ctx->renderer = SDL_CreateRenderer(ctx->window, r, 0);
+
+        testRenderer(ctx);
+
+        if (!ctx->running) {
+            break;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     Context ctx;
     SDL_version linked;
 
     if (SDL_Init(SDL_INIT_VIDEO)) {
-        SDL_Log("Init failed\n");
+        SDL_Log("Init failed: %s\n", SDL_GetError());
         return -1;
     }
 
     SDL_GetVersion(&linked);
 
-    SDL_Log("SDL2 renderer benchmark v. 0.2 (SDL version %d.%d.%d)\n",
+    SDL_Log("SDL2 renderer benchmark v. " BENCHMARK_VERSION " (SDL version %d.%d.%d)\n",
         linked.major, linked.minor, linked.patch);
 
     SDL_Log("This tool measures the speed of various 2D drawing features\n");
+    SDL_Log("Press any key to quit\n");
 
     initContext(&ctx, argc, argv);
 
@@ -709,40 +762,27 @@ int main(int argc, char **argv)
             SDL_WINDOWPOS_CENTERED,
             ctx.width,
             ctx.height,
-            0);
+            SDL_WINDOW_FULLSCREEN);
 
         if (ctx.window) {
 
-            int r;
-
             checkPixelFormat(&ctx);
 
-            for (r = 0; r < SDL_GetNumRenderDrivers(); r++) {
-
-                ctx.renderer = SDL_CreateRenderer(ctx.window, r, 0);
-
-                if (ctx.renderer) {
-
-                    printInfo(&ctx);
-
-                    runTestSuite(&ctx);
-
-                    SDL_DestroyRenderer(ctx.renderer);
-
-                } else {
-                    SDL_Log("Failed to create renderer\n");
-                }
+            if (ctx.rendname) {
+                testSpecificRenderer(&ctx);
+            } else {
+                testAllRenderers(&ctx);
             }
 
             SDL_DestroyWindow(ctx.window);
         } else {
-            SDL_Log("Failed to create window\n");
+            SDL_Log("Failed to create window: %s\n", SDL_GetError());
         }
 
         SDL_FreeSurface(ctx.surface);
 
     } else {
-        SDL_Log("Failed do load image\n");
+        SDL_Log("Failed do load image: %s\n", SDL_GetError());
     }
 
     SDL_Log("Bye bye\n");

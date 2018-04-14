@@ -334,6 +334,19 @@ OS4_SetGLESFunctions(SDL_VideoDevice * device)
 }
 #endif
 
+static SDL_bool
+OS4_IsMiniGL(_THIS)
+{
+    if ((_this->gl_config.profile_mask == 0) &&
+        (_this->gl_config.major_version == 1) &&
+        (_this->gl_config.minor_version == 3)) {
+            dprintf("OpenGL 1.3 requested\n");
+            return SDL_TRUE;
+    }
+
+    return SDL_FALSE;
+}
+
 #if SDL_VIDEO_OPENGL_ES2
 static SDL_bool
 OS4_IsOpenGLES2(_THIS)
@@ -357,16 +370,21 @@ OS4_LoadGlLibrary(_THIS, const char * path)
         _this->gl_config.major_version,
         _this->gl_config.minor_version);
 
+    if (OS4_IsMiniGL(_this)) {
+        OS4_SetMiniGLFunctions(_this);
+        return OS4_GL_LoadLibrary(_this, path);
+    }
+
 #if SDL_VIDEO_OPENGL_ES2
     if (OS4_IsOpenGLES2(_this)) {
         OS4_SetGLESFunctions(_this);
         return OS4_GLES_LoadLibrary(_this, path);
-    } else {
-        OS4_SetMiniGLFunctions(_this);
     }
 #endif
 
-    return OS4_GL_LoadLibrary(_this, path);
+    dprintf("Invalid OpenGL version\n");
+    SDL_SetError("Invalid OpenGL version");
+    return -1;
 }
 
 static void
