@@ -48,12 +48,6 @@ typedef struct
     struct Task            *mainTask;
     struct MsgPort         *userPort;
     struct MsgPort         *appMsgPort;
-    BYTE                    mainSignal;
-
-    struct Task            *screenNotifyTask;
-    struct MsgPort         *screenNotifyPort;
-    BYTE                    screenNotifySignal;
-    APTR                    screenNotifyRequest;
 
     struct MsgPort         *inputPort;
     struct IOStdReq        *inputReq;

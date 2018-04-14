@@ -137,121 +137,6 @@ OS4_CloseLibraries(_THIS)
 }
 
 static void
-OS4_HandleScreenNotify(_THIS, ULONG cl)
-{
-    switch (cl) {
-        case SNOTIFY_BEFORE_CLOSEWB:
-            dprintf("Before close WB\n");
-            OS4_IconifyWindows(_this);
-            break;
-
-        case SNOTIFY_AFTER_OPENWB:
-            dprintf("After open WB\n");
-            OS4_UniconifyWindows(_this);
-            break;
-
-        default:
-            dprintf("Unknown screen notify message %d\n", cl);
-            break;
-    }
-}
-
-static int
-OS4_NotifyTask(uint32_t param)
-{
-    _THIS = (SDL_VideoDevice *)param;
-    SDL_VideoData *data = (SDL_VideoData *)_this->driverdata;
-
-    if ((data->screenNotifySignal = IExec->AllocSignal(-1)) == -1) {
-        dprintf("Failed to allocate screen notify signal\n");
-        goto done;
-    }
-
-    if (!(data->screenNotifyPort = IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE))) {
-        dprintf("Failed to create screen notify msg port\n");
-        goto done;
-    }
-
-    if (!(data->screenNotifyRequest = IIntuition->StartScreenNotifyTags(
-        //SNA_PubName, "Workbench",
-        SNA_MsgPort, data->screenNotifyPort,
-        SNA_Notify, SNOTIFY_BEFORE_CLOSEWB | SNOTIFY_AFTER_OPENWB /*| SNOTIFY_WAIT_REPLY*/,
-        SNA_Priority, 0,
-        TAG_DONE))) {
-
-        dprintf("Failed to start screen notify\n");
-        goto done;
-    }
-
-    dprintf("Signalling main task\n");
-    IExec->Signal(data->mainTask, 1L << data->mainSignal);
-
-    while (data->running) {
-        ULONG notifySignal = 1L << data->screenNotifyPort->mp_SigBit;
-        ULONG stopSignal = 1L << data->screenNotifySignal;
-
-        ULONG sigs = IExec->Wait(notifySignal | stopSignal);
-
-        if (sigs & notifySignal) {
-           struct ScreenNotifyMessage *msg;
-
-            while ((msg = (struct ScreenNotifyMessage *)IExec->GetMsg(data->screenNotifyPort))) {
-                ULONG cl = msg->snm_Class;
-                IExec->ReplyMsg((struct Message *) msg);
-
-                dprintf("Received screen notify msg %d\n", cl);
-
-                OS4_HandleScreenNotify(_this, cl);
-            }
-        }
-
-        if (sigs & stopSignal) {
-            dprintf("Received stop signal\n");
-            break;
-        }
-    }
-
-    dprintf("SN task Ending\n");
-
-done:
-
-    if (data->screenNotifyRequest) {
-        dprintf("End screen notify\n");
-        if (!IIntuition->EndScreenNotify(data->screenNotifyRequest)) {
-            dprintf("...failed\n");
-        }
-
-        data->screenNotifyRequest = NULL;
-    }
-
-    if (data->screenNotifyPort) {
-
-        struct Message *msg;
-
-        while ((msg = IExec->GetMsg(data->screenNotifyPort))) {
-            IExec->ReplyMsg((struct Message *) msg);
-        }
-
-        IExec->FreeSysObject(ASOT_PORT, data->screenNotifyPort);
-        data->screenNotifyPort = NULL;
-    }
-
-    if (data->screenNotifySignal != -1) {
-        dprintf("Signalling main\n");
-
-        IExec->Signal(data->mainTask, 1L << data->mainSignal);
-
-        IExec->FreeSignal(data->screenNotifySignal);
-        data->screenNotifySignal = -1;
-    }
-
-    dprintf("Waiting for removal\n");
-
-    IExec->Wait(0L);
-    return 0;
-}
-
-static void
 OS4_FindApplicationName(_THIS)
 {
     SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
@@ -309,22 +194,6 @@ OS4_AllocSystemResources(_THIS)
         return SDL_FALSE;
     }
 
-    if ((data->mainSignal = IExec->AllocSignal(-1)) == -1) {
-        SDL_SetError("Couldn't allocate main signal");
-        return SDL_FALSE;
-    }
-
-    if (!(data->screenNotifyTask = IExec->CreateTaskTags("SDL2 Screen Notification",
-        0, OS4_NotifyTask, 16384, AT_Param1, (uint32)_this, TAG_DONE))) {
-
-        SDL_SetError("Couldn't create Screen Notification task");
-        return SDL_FALSE;
-    }
-
-    dprintf("Waiting for sn task\n");
-    IExec->Wait(1L << data->mainSignal);
-    dprintf("sn reported\n");
-
     /* Create the pool we'll be using (Shared, might be used from threads) */
     if (!(data->pool = IExec->AllocSysObjectTags(ASOT_MEMPOOL,
         ASOPOOL_MFlags,    MEMF_SHARED,
@@ -377,23 +246,6 @@ OS4_FreeSystemResources(_THIS)
     dprintf("Called\n");
 
     data->running = FALSE;
-
-    if (data->screenNotifyTask && data->screenNotifySignal) {
-        dprintf("Signalling screen notify task\n");
-
-        IExec->Signal(data->screenNotifyTask, 1L << data->screenNotifySignal);
-
-        if (data->mainSignal != -1) {
-            dprintf("Waiting for screen notify task\n");
-            IExec->Wait(1L << data->mainSignal);
-        }
-
-        IExec->RemTask(data->screenNotifyTask);
-    }
-
-    if (data->mainSignal != -1) {
-        IExec->FreeSignal(data->mainSignal);
-    }
 
     OS4_DropInterface((void *)&IInput);
 

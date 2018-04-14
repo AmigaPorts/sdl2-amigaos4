@@ -1046,62 +1046,6 @@ OS4_UniconifyWindow(_THIS, SDL_Window * window)
     }
 }
 
-void
-OS4_IconifyWindows(_THIS)
-{
-    SDL_Window *sdlwin;
-
-    for (sdlwin = _this->windows; sdlwin; sdlwin = sdlwin->next) {
-
-        SDL_WindowData *data = sdlwin->driverdata;
-
-        if (!OS4_IsFullscreen(sdlwin) && data->syswin) {
-
-            if (sdlwin->flags & SDL_WINDOW_MINIMIZED) {
-                dprintf("Window '%s' already iconified\n", sdlwin->title);
-            } else {
-                dprintf("Iconifying window '%s'\n", sdlwin->title);
-
-                OS4_CloseWindow(_this, sdlwin);
-
-                SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_MINIMIZED, 0, 0);
-            }
-        }
-    }
-
-    OS4_UnlockPubScreen(_this);
-}
-
-void
-OS4_UniconifyWindows(_THIS)
-{
-    if (OS4_LockPubScreen(_this)) {
-
-        SDL_Window *sdlwin;
-
-        for (sdlwin = _this->windows; sdlwin; sdlwin = sdlwin->next) {
-
-            SDL_WindowData *data = sdlwin->driverdata;
-
-            if (!OS4_IsFullscreen(sdlwin) && !data->syswin) {
-
-                if (sdlwin->flags & SDL_WINDOW_MINIMIZED) {
-                    dprintf("Uniconifying window\n");
-
-                    OS4_CreateWindow(_this, sdlwin);
-
-                    SDL_SendWindowEvent(sdlwin, SDL_WINDOWEVENT_RESTORED, 0, 0);
-                } else {
-                    dprintf("Window not iconified\n");
-                }
-            }
-        }
-
-    } else {
-        dprintf("Failed to lock pub screen\n");
-    }
-}
-
 #endif /* SDL_VIDEO_DRIVER_AMIGAOS4 */
 
 /* vi: set ts=4 sw=4 expandtab: */
